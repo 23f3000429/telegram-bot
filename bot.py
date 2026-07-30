@@ -24,7 +24,6 @@ AIPIPE_TOKEN = os.environ["AIPIPE_TOKEN"]
 # Automatically construct the Render host URL for log_url
 BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
 if not BASE_URL:
-    # Fallback to RENDER_EXTERNAL_URL if set by Render automatically
     BASE_URL = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:10000").rstrip("/")
 
 LOG_URL = f"{BASE_URL}/run.jsonl"
@@ -168,7 +167,7 @@ def clean_and_format_json(raw_text: str) -> str:
     parsed["log_url"] = LOG_URL
     return json.dumps(parsed)
 
-# --- 3. Telegram Handler ---
+# --- 3. Telegram Handler & Application Setup ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -187,8 +186,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_event({"type": "outgoing", "chat_id": chat_id, "text": final_reply})
     await update.message.reply_text(final_reply)
 
+# Initialize Telegram Application
+tb_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+tb_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+
 # --- 4. FastAPI Web Server ---
 app = FastAPI()
+
+@app.get("/")
+@app.head("/")
+def root():
+    return {"status": "ok", "message": "Telegram bot server is active"}
 
 @app.get("/health")
 def health():
@@ -218,20 +226,21 @@ def start_bot():
         await tb_app.start()
         await tb_app.updater.start_polling(drop_pending_updates=True)
         print("Telegram polling active...")
-        # Keeps the polling loop alive endlessly in this background thread
         while True:
             await asyncio.sleep(3600)
 
-    # Create and run a new asyncio loop dedicated to this thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(_run())
+    try:
+        loop.run_until_complete(_run())
+    except Exception as e:
+        print(f"Polling error: {e}")
 
 if __name__ == "__main__":
     # 1. Start Keep-Alive Ping in Background Thread
     threading.Thread(target=self_ping, daemon=True).start()
     
-    # 2. Start Telegram Polling in Background Thread (fixed non-blocking engine)
+    # 2. Start Telegram Polling in Background Thread
     threading.Thread(target=start_bot, daemon=True).start()
 
     # 3. Start FastAPI Web Server in Main Thread
