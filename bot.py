@@ -212,17 +212,29 @@ def self_ping():
 
 # --- 5. Application Launcher ---
 def start_bot():
+    """Runs the telegram polling engine inside a dedicated event loop."""
+    async def _run():
+        await tb_app.initialize()
+        await tb_app.start()
+        await tb_app.updater.start_polling(drop_pending_updates=True)
+        print("Telegram polling active...")
+        # Keeps the polling loop alive endlessly in this background thread
+        while True:
+            await asyncio.sleep(3600)
+
+    # Create and run a new asyncio loop dedicated to this thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    tb_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    tb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Telegram polling active...")
-    tb_app.run_polling(drop_pending_updates=True)
+    loop.run_until_complete(_run())
 
 if __name__ == "__main__":
+    # 1. Start Keep-Alive Ping in Background Thread
     threading.Thread(target=self_ping, daemon=True).start()
+    
+    # 2. Start Telegram Polling in Background Thread (fixed non-blocking engine)
     threading.Thread(target=start_bot, daemon=True).start()
 
+    # 3. Start FastAPI Web Server in Main Thread
     port = int(os.environ.get("PORT", 10000))
     print(f"FastAPI running on port {port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
